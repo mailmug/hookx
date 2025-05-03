@@ -1,0 +1,7 @@
+ARG_ENABLE('hookx', 'hookx support', 'no');
+
+if (PHP_HOOKX != 'no') {
+	AC_DEFINE('HAVE_HOOKX', 1, "Define to 1 if the PHP extension 'hookx' is available.");
+
+	EXTENSION('hookx', 'hookx.c', null, '/DZEND_ENABLE_STATIC_TSRMLS_CACHE=1');
+}
