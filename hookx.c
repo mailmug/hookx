@@ -49,45 +49,37 @@ static void free_callback_data(zend_resource *rsrc) {
 
 
 void add_callback_func(zval *object, zval *callback, zend_long accepted_args, zend_long priority, zend_string *idx) {
-    zval *callbacks_prop = zend_read_property(hookx_ce, Z_OBJ_P(object), "callbacks", sizeof("callbacks") - 1, 1, NULL);
-    ZVAL_DEREF(callbacks_prop);
+    zval *callbacks = zend_read_property(hookx_ce, Z_OBJ_P(object), "callbacks", sizeof("callbacks") - 1, 1, NULL);
+    ZVAL_DEREF(callbacks);
 
-    zval callbacks_copy;
-    if (callbacks_prop && Z_TYPE_P(callbacks_prop) == IS_ARRAY) {
-        ZVAL_DUP(&callbacks_copy, callbacks_prop);
-        SEPARATE_ARRAY(&callbacks_copy);
-    } else {
-        array_init(&callbacks_copy);
+    if (Z_TYPE_P(callbacks) != IS_ARRAY) {
+        zval new_callbacks;
+        array_init(&new_callbacks);
+        zend_update_property(hookx_ce, Z_OBJ_P(object), "callbacks", sizeof("callbacks") - 1, &new_callbacks);
+        callbacks = zend_read_property(hookx_ce, Z_OBJ_P(object), "callbacks", sizeof("callbacks") - 1, 1, NULL);
     }
 
-    zval *priority_val = zend_hash_index_find(Z_ARRVAL(callbacks_copy), priority);
-    zval priority_array;
-    if (priority_val && Z_TYPE_P(priority_val) == IS_ARRAY) {
-        ZVAL_DUP(&priority_array, priority_val);
-        SEPARATE_ARRAY(&priority_array);
-    } else {
-        array_init(&priority_array);
+    zval *priority_array = zend_hash_index_find(Z_ARRVAL_P(callbacks), priority);
+    if (!priority_array || Z_TYPE_P(priority_array) != IS_ARRAY) {
+        zval new_priority_array;
+        array_init(&new_priority_array);
+        SEPARATE_ARRAY(callbacks); // Ensure callbacks array is not shared
+        zend_hash_index_update(Z_ARRVAL_P(callbacks), priority, &new_priority_array);
+        priority_array = zend_hash_index_find(Z_ARRVAL_P(callbacks), priority); // re-fetch
     }
 
-    callback_data *cb = emalloc(sizeof(callback_data));
-    ZVAL_COPY(&cb->function, callback);  
-    cb->accepted_args = accepted_args;
+    // Create the callback entry
+    zval cb_entry;
+    array_init(&cb_entry);
 
-    zval cb_resource;
-    ZVAL_RES(&cb_resource, zend_register_resource(cb, le_callback_data));
+    zval cb_func;
+    ZVAL_COPY(&cb_func, callback); // Faster than ZVAL_DUP when we only want to refcount
+    add_assoc_zval(&cb_entry, "function", &cb_func);
+    add_assoc_long(&cb_entry, "accepted_args", accepted_args);
 
-    if (zend_hash_update(Z_ARRVAL(priority_array), idx, &cb_resource) == NULL) {
-        php_error_docref(NULL, E_WARNING, "Failed to add callback to priority array");
-        zval_ptr_dtor(&cb_resource);  
-    }
-
-    if (zend_hash_index_update(Z_ARRVAL(callbacks_copy), priority, &priority_array) == NULL) {
-        php_error_docref(NULL, E_WARNING, "Failed to update callbacks with priority array");
-    }
-
-    zend_update_property(hookx_ce, Z_OBJ_P(object), "callbacks", sizeof("callbacks") - 1, &callbacks_copy);
-    zval_ptr_dtor(&callbacks_copy);
+    zend_hash_str_update(Z_ARRVAL_P(priority_array), ZSTR_VAL(idx), ZSTR_LEN(idx), &cb_entry);
 }
+
 
 
 PHP_METHOD(Hookx, add_callback)
